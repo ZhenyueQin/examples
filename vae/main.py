@@ -6,7 +6,10 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
+from general_methods import get_current_time
+import os
 
+print(torch.__version__)
 
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -71,7 +74,8 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
+    BCE = torch.sum(F.binary_cross_entropy(recon_x, x.view(-1, 784)))
+    # BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False) / args.batch_size
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -115,18 +119,25 @@ def test(epoch):
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
                                       recon_batch.view(args.batch_size, 1, 28, 28)[:n]])
+                if not os.path.exists('results/' + running_time + '/'):
+                    os.makedirs('results/' + running_time + '/')
                 save_image(comparison.cpu(),
-                         'results/reconstruction_' + str(epoch) + '.png', nrow=n)
+                         'results/' + running_time + '/' + 'reconstruction_' + str(epoch) + '.png', nrow=n)
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
+
 if __name__ == "__main__":
+    running_time = get_current_time()
     for epoch in range(1, args.epochs + 1):
         train(epoch)
         test(epoch)
         with torch.no_grad():
             sample = torch.randn(64, 20).to(device)
             sample = model.decode(sample).cpu()
+
+            if not os.path.exists('results/' + running_time + '/'):
+                os.makedirs('results/' + running_time + '/')
             save_image(sample.view(64, 1, 28, 28),
-                       'results/sample_' + str(epoch) + '.png')
+                       'results/' + running_time + '/' + 'sample_' + str(epoch) + '.png')
