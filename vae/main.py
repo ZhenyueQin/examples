@@ -6,10 +6,9 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
-from general_methods import get_current_time
 import os
+from general_methods import get_current_time
 
-print(torch.__version__)
 
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -18,14 +17,14 @@ parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
-parser.add_argument('--seed', type=int, default=1, metavar='S',
+parser.add_argument('--seed', type=int, default='1', metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
-torch.manual_seed(args.seed)
+torch.manual_seed(2)
 
 device = torch.device("cuda" if args.cuda else "cpu")
 
@@ -74,8 +73,7 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
-    BCE = torch.sum(F.binary_cross_entropy(recon_x, x.view(-1, 784)))
-    # BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False) / args.batch_size
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -86,10 +84,12 @@ def loss_function(recon_x, x, mu, logvar):
     return BCE + KLD
 
 
-def train(epoch):
+def train(epoch, inverse=False):
     model.train()
     train_loss = 0
     for batch_idx, (data, _) in enumerate(train_loader):
+        if inverse:
+            data = 1 - data
         data = data.to(device)
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
@@ -107,11 +107,17 @@ def train(epoch):
           epoch, train_loss / len(train_loader.dataset)))
 
 
-def test(epoch):
+def test(epoch, inverse=False):
+    if inverse:
+        save_prefix = 'results/inverse/'
+    else:
+        save_prefix = 'results/original/'
     model.eval()
     test_loss = 0
     with torch.no_grad():
         for i, (data, _) in enumerate(test_loader):
+            if inverse:
+                data = 1 - data
             data = data.to(device)
             recon_batch, mu, logvar = model(data)
             test_loss += loss_function(recon_batch, data, mu, logvar).item()
@@ -119,25 +125,37 @@ def test(epoch):
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
                                       recon_batch.view(args.batch_size, 1, 28, 28)[:n]])
-                if not os.path.exists('results/' + running_time + '/'):
-                    os.makedirs('results/' + running_time + '/')
+                if not os.path.exists(save_prefix + running_time + '/'):
+                    os.makedirs(save_prefix + running_time + '/')
                 save_image(comparison.cpu(),
-                         'results/' + running_time + '/' + 'reconstruction_' + str(epoch) + '.png', nrow=n)
+                           save_prefix + running_time + '/' + 'reconstruction_' + str(epoch) + '.png', nrow=n)
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
-
 if __name__ == "__main__":
     running_time = get_current_time()
+    to_inverse = False
+    if to_inverse == 'mixed':
+        save_prefix = 'results/mixed/'
+    else:
+        if to_inverse:
+            save_prefix = 'results/inverse/'
+        else:
+            save_prefix = 'results/original/'
+
+    save_path_prefix = save_prefix + running_time + '/'
+
     for epoch in range(1, args.epochs + 1):
-        train(epoch)
-        test(epoch)
+        train(epoch, inverse=to_inverse)
+        test(epoch, inverse=to_inverse)
         with torch.no_grad():
             sample = torch.randn(64, 20).to(device)
             sample = model.decode(sample).cpu()
-
-            if not os.path.exists('results/' + running_time + '/'):
-                os.makedirs('results/' + running_time + '/')
+            if not os.path.exists(save_path_prefix):
+                os.makedirs(save_path_prefix)
             save_image(sample.view(64, 1, 28, 28),
-                       'results/' + running_time + '/' + 'sample_' + str(epoch) + '.png')
+                       save_path_prefix + 'sample_' + str(epoch) + '.png')
+
+    model_path = save_path_prefix + 'model.torch'
+    torch.save(model.state_dict(), model_path)
