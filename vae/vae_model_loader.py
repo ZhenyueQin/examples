@@ -15,6 +15,18 @@ import general_methods as gm
 
 running_time = get_current_time()
 
+model_path = 'results/mixed/2019-01-05-21-04-29/model.torch'
+# model_path = 'results/inverse/2019-01-04-23-53-46/model.torch'
+# z_path = model_path.replace('model.torch', 'z.txt')
+
+if 'mixed' in model_path:
+    to_inverse = 'mixed'
+else:
+    if 'inverse' in model_path:
+        to_inverse = True
+    else:
+        to_inverse = False
+
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
@@ -34,14 +46,23 @@ torch.manual_seed(args.seed)
 device = torch.device("cuda" if args.cuda else "cpu")
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=True, download=True,
-                   transform=transforms.ToTensor()),
-    batch_size=args.batch_size, shuffle=False, **kwargs)
-test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
-    batch_size=args.batch_size, shuffle=False, **kwargs)
 
+if isinstance(to_inverse, bool):
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=True, download=True,
+                       transform=transforms.ToTensor()),
+        batch_size=args.batch_size, shuffle=False, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
+        batch_size=args.batch_size, shuffle=False, **kwargs)
+else:
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=True, download=True,
+                       transform=transforms.ToTensor()),
+        batch_size=int(args.batch_size/2), shuffle=False, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
+        batch_size=int(args.batch_size/2), shuffle=False, **kwargs)
 
 class VAE(nn.Module):
     def __init__(self, save_z=False, save_path=None):
@@ -97,15 +118,20 @@ class VAE(nn.Module):
 
 
 def test(epoch, inverse=False, to_save=False):
-    if inverse:
-        save_prefix = 'results/inverse/'
+    if to_inverse == 'mixed':
+        save_prefix = 'results/mixed/'
     else:
-        save_prefix = 'results/original/'
+        if to_inverse:
+            save_prefix = 'results/inverse/'
+        else:
+            save_prefix = 'results/original/'
     save_path_prefix = save_prefix + running_time + '/'
     model.eval()
     with torch.no_grad():
         for i, (data, _) in enumerate(test_loader):
-            if inverse:
+            if to_inverse == 'mixed':
+                data = torch.cat((data, 1 - data), 0)
+            elif to_inverse:
                 data = 1 - data
 
             data = data.to(device)
@@ -151,34 +177,30 @@ def generate_z_vectors(model, to_inverse):
 
     for a_loader in [test_loader]:
         for i, (data, label) in enumerate(a_loader):
-            if to_inverse:
+            if to_inverse == 'mixed':
+                data = torch.cat((data, 1 - data), 0)
+            elif to_inverse:
                 data = 1 - data
             mu, logvar = model.encode(data.view(-1, 784))
             z = model.reparameterize(mu, logvar)
 
             store_data_np = np.concatenate([store_data_np, z.data.numpy()], axis=0)
-            store_label_np = np.concatenate([store_label_np, label], axis=0)
+            label_half = label.data.numpy() + 0.5
+            double_label = np.concatenate([label, label_half], axis=0)
+            store_label_np = np.concatenate([store_label_np, double_label], axis=0)
 
-    store_label_np = store_label_np.astype(int)
+    store_label_np = store_label_np.astype(np.float32)
     print('store data np: ', store_data_np.shape)
     np.savetxt('z_vectors.txt', store_data_np, delimiter='\t')
-    np.savetxt('z_labels.txt', store_label_np, delimiter='\n', fmt='%i')
+    np.savetxt('z_labels.txt', store_label_np, delimiter='\n', fmt='%.1f')
 
 
-# model_path = 'results/original/2019-01-04-23-54-33/model.torch'
-model_path = 'results/inverse/2019-01-04-23-53-46/model.torch'
-# z_path = model_path.replace('model.torch', 'z.txt')
-
-if 'inverse' in model_path:
-    to_inverse = True
-else:
-    to_inverse = False
 
 model = VAE(save_z=True, save_path=model_path)
 model.load_state_dict(torch.load(model_path))
 
-# model.eval()
-# test(0, inverse=to_inverse)
+model.eval()
+test(0, inverse=to_inverse)
 
 arithmetic = z_vector_analyzer('results/original/2019-01-04-23-54-33/z.txt',
                                'results/original/2019-01-05-09-55-24/z.txt',
@@ -198,4 +220,4 @@ arithmetic = z_vector_analyzer('results/original/2019-01-04-23-54-33/z.txt',
 generate_z_vectors(model, to_inverse)
 z_s = np.loadtxt('z_vectors.txt', delimiter='\t')
 y_s = np.loadtxt('z_labels.txt', delimiter='\t')
-gm.compute_TSNE_projection_of_latent_space(z_s[:10000], y_s[:10000])
+gm.compute_TSNE_projection_of_latent_space(z_s[:20000], y_s[:20000])
