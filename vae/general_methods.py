@@ -27,7 +27,7 @@ def imscatter(x, y, ax, imageData, zoom, imageSize):
 
 
 # Show dataset images with T-sne projection of latent space encoding
-def compute_TSNE_projection_of_latent_space(z_s, y_s, display=True):
+def compute_TSNE_projection_of_latent_space(z_s, y_s, save_path, display=True):
     y_s_list = y_s.tolist()
     point_maps = {0.0: '.', 0.5: 'D', 1.0: 'o', 1.5: 'v', 2.0: '^', 2.5: '<', 3.0: '>',
                   3.5: '1', 4.0: '2', 4.5: '3', 5.0: '4', 5.5: '8', 6.0: 's', 6.5: 'p',
@@ -64,7 +64,7 @@ def compute_TSNE_projection_of_latent_space(z_s, y_s, display=True):
         plt.scatter(X_tsne[:, 0], X_tsne[:, 1], marker='x', c=y_s_list)
         plt.colorbar()
         plt.legend(point_maps)
-        plt.savefig('tsne.png', dpi=300)
+        plt.savefig(save_path, dpi=300)
         plt.show()
 
     else:

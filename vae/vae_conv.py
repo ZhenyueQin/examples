@@ -10,6 +10,8 @@ import os
 from general_methods import get_current_time
 import numpy as np
 
+print(torch.__version__)
+
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
@@ -21,22 +23,14 @@ parser.add_argument('--seed', type=int, default='1', metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--latent_dim', type=int, default=100,
-                    help='dimensionality of the latent space')
-parser.add_argument('--img_size', type=int, default=28,
-                    help='size of each image dimension')
-
-
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 torch.manual_seed(args.seed)
 
-img_shape = (args.channels, args.img_size, args.img_size)
-
 device = torch.device("cuda" if args.cuda else "cpu")
 
-to_inverse = 'mixed'
+to_inverse = False
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
@@ -58,54 +52,8 @@ else:
         batch_size=int(args.batch_size/2), shuffle=True, **kwargs)
 
 
-class Generator(nn.Module):
-    def __init__(self):
-        super(Generator, self).__init__()
-
-        def block(in_feat, out_feat, normalize=True):
-            layers = [nn.Linear(in_feat, out_feat)]
-            if normalize:
-                layers.append(nn.BatchNorm1d(out_feat, 0.8))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
-
-        self.model = nn.Sequential(
-            *block(args.latent_dim, 128, normalize=False),
-            *block(128, 256),
-            *block(256, 512),
-            *block(512, 1024),
-            nn.Linear(1024, int(np.prod(img_shape))),
-            nn.Tanh()
-        )
-
-    def forward(self, z):
-        img = self.model(z)
-        img = img.view(img.size(0), *img_shape)
-        return img
-
-
-class Discriminator(nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-
-        self.model = nn.Sequential(
-            nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(256, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, img):
-        img_flat = img.view(img.size(0), -1)
-        validity = self.model(img_flat)
-
-        return validity
-
-
 class VAE(nn.Module):
-    def __init__(self, d=128):
+    def __init__(self):
         super(VAE, self).__init__()
 
         self.fc1 = nn.Linear(784, 400)
@@ -154,6 +102,7 @@ def train(epoch, to_inverse=False):
     model.train()
     train_loss = 0
     for batch_idx, (data, _) in enumerate(train_loader):
+        # print('img max: ', np.max(data.data.numpy()), '; img min: ', np.min(data.data.numpy()))
         if to_inverse == 'mixed':
             data = torch.cat((data, 1 - data), 0)
         elif to_inverse:
@@ -177,12 +126,12 @@ def train(epoch, to_inverse=False):
 
 def test(epoch, to_inverse=False):
     if to_inverse == 'mixed':
-        save_prefix = 'results/convolution/mixed/'
+        save_prefix = 'results/mixed/'
     else:
         if to_inverse:
-            save_prefix = 'results/convolution/inverse/'
+            save_prefix = 'results/inverse/'
         else:
-            save_prefix = 'results/convolution/original/'
+            save_prefix = 'results/original/'
     model.eval()
     test_loss = 0
     with torch.no_grad():
@@ -210,12 +159,12 @@ def test(epoch, to_inverse=False):
 running_time = get_current_time()
 print('Starting VAE normal at: ', running_time)
 if to_inverse == 'mixed':
-    save_prefix = 'results/convolution/mixed/'
+    save_prefix = 'results/mixed/'
 else:
     if to_inverse:
-        save_prefix = 'results/convolution/inverse/'
+        save_prefix = 'results/inverse/'
     else:
-        save_prefix = 'results/convolution/original/'
+        save_prefix = 'results/original/'
 
 save_path_prefix = save_prefix + running_time + '/'
 
@@ -223,7 +172,7 @@ for epoch in range(1, args.epochs + 1):
     train(epoch, to_inverse=to_inverse)
     test(epoch, to_inverse=to_inverse)
     with torch.no_grad():
-        sample = torch.randn(64, args.latent_dim).to(device)
+        sample = torch.randn(64, 20).to(device)
         sample = model.decode(sample).cpu()
         if not os.path.exists(save_path_prefix):
             os.makedirs(save_path_prefix)

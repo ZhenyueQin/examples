@@ -33,7 +33,7 @@ parser.add_argument('--sample_interval', type=int, default=400, help='interval b
 args = parser.parse_args()
 print(args)
 
-to_inverse = True
+to_inverse = 'mixed'
 
 
 img_shape = (args.channels, args.img_size, args.img_size)
@@ -57,7 +57,7 @@ class Generator(nn.Module):
             *block(256, 512),
             *block(512, 1024),
             nn.Linear(1024, int(np.prod(img_shape))),
-            nn.Tanh()
+            nn.Sigmoid()
         )
 
     def forward(self, z):
@@ -102,16 +102,16 @@ if isinstance(to_inverse, bool):
     dataloader = torch.utils.data.DataLoader(
         datasets.MNIST('../../data/mnist', train=True, download=True,
                        transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                           transforms.ToTensor()
+                           # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
                        ])),
         batch_size=args.batch_size, shuffle=True)
 else:
     dataloader = torch.utils.data.DataLoader(
         datasets.MNIST('../../data/mnist', train=True, download=True,
                        transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                           transforms.ToTensor()
+                           # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
                        ])),
         batch_size=int(args.batch_size/2), shuffle=True)
 
@@ -127,11 +127,11 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
 for epoch in range(args.n_epochs):
     for i, (imgs, _) in enumerate(dataloader):
-        print('img max: ', np.max(imgs.data.numpy()), '; img min: ', np.min(imgs.data.numpy()))
+        # print('img max: ', np.max(imgs.data.numpy()), '; img min: ', np.min(imgs.data.numpy()))
         if to_inverse == 'mixed':
-            imgs = torch.cat((imgs, 1 - imgs), 0)
+            imgs = torch.cat((imgs, 1-imgs), 0)
         elif to_inverse:
-            imgs = 1 - imgs
+            imgs = 1-imgs
 
         # Adversarial ground truths
         valid = Variable(Tensor(imgs.size(0), 1).fill_(1.0), requires_grad=False)

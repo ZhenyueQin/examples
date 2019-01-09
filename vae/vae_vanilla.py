@@ -8,11 +8,13 @@ from torchvision import datasets, transforms
 from torchvision.utils import save_image
 import os
 from general_methods import get_current_time
+import numpy as np
+from vae_models import VAE_Vanilla, VAE_Conv
 
 print(torch.__version__)
 
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
-parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
@@ -22,77 +24,82 @@ parser.add_argument('--seed', type=int, default='1', metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
+parser.add_argument('--lat_dim', type=int, default=20, metavar='N',
+                    help='how many batches to wait before logging training status')
+parser.add_argument('--img_size', type=int, default=28, metavar='N',
+                    help='how many batches to wait before logging training status')
+parser.add_argument('--log_interval', type=int, default=10, metavar='N',
+                    help='how many batches to wait before logging training status')
+
 args = parser.parse_args()
+args.lat_dim = 100
+args.img_size = 64
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 torch.manual_seed(args.seed)
 
 device = torch.device("cuda" if args.cuda else "cpu")
+print('device: ', device)
 
-to_inverse = False
+to_inverse = 'mixed'
+model_type = 'vanilla'
+if to_inverse == 'mixed':
+    save_prefix = 'results/' + model_type + '/mixed/'
+else:
+    if to_inverse:
+        save_prefix = 'results/' + model_type + '/inverse/'
+    else:
+        save_prefix = 'results/' + model_type + '/original/'
+
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+
+
+transform = transforms.Compose([
+        transforms.Scale(args.img_size),
+        transforms.ToTensor()
+        # transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+])
 
 if isinstance(to_inverse, bool):
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.ToTensor()),
+                       transform=transform),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
+        datasets.MNIST('../data', train=False, transform=transform),
+        batch_size=args.batch_size, shuffle=False, **kwargs)
 else:
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.ToTensor()),
+                       transform=transform),
         batch_size=int(args.batch_size/2), shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
-        batch_size=int(args.batch_size/2), shuffle=True, **kwargs)
+        datasets.MNIST('../data', train=False, transform=transform),
+        batch_size=int(args.batch_size/2), shuffle=False, **kwargs)
 
+if model_type == 'vanilla':
+    model = VAE_Vanilla(z_dim=args.lat_dim).to(device)
+elif model_type == 'conv':
+    model = VAE_Conv(args=args, z_dim=args.lat_dim).to(device)
 
-class VAE(nn.Module):
-    def __init__(self):
-        super(VAE, self).__init__()
-
-        self.fc1 = nn.Linear(784, 400)
-        self.fc21 = nn.Linear(400, 20)
-        self.fc22 = nn.Linear(400, 20)
-        self.fc3 = nn.Linear(20, 400)
-        self.fc4 = nn.Linear(400, 784)
-
-    def encode(self, x):
-        h1 = F.relu(self.fc1(x))
-        return self.fc21(h1), self.fc22(h1)
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return eps.mul(std).add_(mu)
-
-    def decode(self, z):
-        h3 = F.relu(self.fc3(z))
-        return torch.sigmoid(self.fc4(h3))
-
-    def forward(self, x):
-        mu, logvar = self.encode(x.view(-1, 784))
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
-
-
-model = VAE().to(device)
+print('is on cuda: ', next(model.parameters()).is_cuda)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
-def loss_function(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
+def loss_function(recon_x, x, mu, logvar, z=None):
+    BCE = F.binary_cross_entropy(recon_x.view(-1, args.img_size*args.img_size),
+                                 x.view(-1, args.img_size*args.img_size)) * args.img_size * args.img_size * args.batch_size
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+    # if z is not None:
+    #     z_loss =
 
     return BCE + KLD
 
@@ -101,13 +108,14 @@ def train(epoch, to_inverse=False):
     model.train()
     train_loss = 0
     for batch_idx, (data, _) in enumerate(train_loader):
+        # print('img max: ', np.max(data.data.numpy()), '; img min: ', np.min(data.data.numpy()))
         if to_inverse == 'mixed':
             data = torch.cat((data, 1 - data), 0)
         elif to_inverse:
             data = 1 - data
         data = data.to(device)
         optimizer.zero_grad()
-        recon_batch, mu, logvar = model(data)
+        recon_batch, mu, logvar, z = model(data)
         loss = loss_function(recon_batch, data, mu, logvar)
         loss.backward()
         train_loss += loss.item()
@@ -122,14 +130,7 @@ def train(epoch, to_inverse=False):
           epoch, train_loss / len(train_loader.dataset)))
 
 
-def test(epoch, to_inverse=False):
-    if to_inverse == 'mixed':
-        save_prefix = 'results/mixed/'
-    else:
-        if to_inverse:
-            save_prefix = 'results/inverse/'
-        else:
-            save_prefix = 'results/original/'
+def test(epoch):
     model.eval()
     test_loss = 0
     with torch.no_grad():
@@ -140,41 +141,35 @@ def test(epoch, to_inverse=False):
                 data = 1 - data
 
             data = data.to(device)
-            recon_batch, mu, logvar = model(data)
+            recon_batch, mu, logvar, z = model(data)
             test_loss += loss_function(recon_batch, data, mu, logvar).item()
             if i == 0:
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
-                                      recon_batch.view(args.batch_size, 1, 28, 28)[:n]])
+                                      recon_batch.view(args.batch_size, 1, args.img_size, args.img_size)[:n]])
                 if not os.path.exists(save_prefix + running_time + '/'):
                     os.makedirs(save_prefix + running_time + '/')
                 save_image(comparison.cpu(),
                            save_prefix + running_time + '/' + 'reconstruction_' + str(epoch) + '.png', nrow=n)
+                break
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 running_time = get_current_time()
 print('Starting VAE normal at: ', running_time)
-if to_inverse == 'mixed':
-    save_prefix = 'results/mixed/'
-else:
-    if to_inverse:
-        save_prefix = 'results/inverse/'
-    else:
-        save_prefix = 'results/original/'
 
 save_path_prefix = save_prefix + running_time + '/'
 
 for epoch in range(1, args.epochs + 1):
     train(epoch, to_inverse=to_inverse)
-    test(epoch, to_inverse=to_inverse)
+    test(epoch)
     with torch.no_grad():
-        sample = torch.randn(64, 20).to(device)
+        sample = torch.randn(64, args.lat_dim).to(device)
         sample = model.decode(sample).cpu()
         if not os.path.exists(save_path_prefix):
             os.makedirs(save_path_prefix)
-        save_image(sample.view(64, 1, 28, 28),
+        save_image(sample.view(64, 1, args.img_size, args.img_size),
                     save_path_prefix + 'sample_' + str(epoch) + '.png')
 
 model_path = save_path_prefix + 'model.torch'
