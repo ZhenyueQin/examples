@@ -15,8 +15,12 @@ import torch.nn.functional as F
 import torch
 from general_methods import get_current_time
 
+# import np_plotter as np_plt
+
+to_inverse = 'mixed'
+
 running_time = get_current_time()
-img_save_path = 'results/gan_images/' + running_time + '/'
+img_save_path = 'results/gan_images/' + str(to_inverse) + '/' + running_time + '/'
 os.makedirs(img_save_path, exist_ok=False)
 
 parser = argparse.ArgumentParser()
@@ -29,12 +33,9 @@ parser.add_argument('--n_cpu', type=int, default=8, help='number of cpu threads 
 parser.add_argument('--latent_dim', type=int, default=100, help='dimensionality of the latent space')
 parser.add_argument('--img_size', type=int, default=28, help='size of each image dimension')
 parser.add_argument('--channels', type=int, default=1, help='number of image channels')
-parser.add_argument('--sample_interval', type=int, default=400, help='interval betwen image samples')
+parser.add_argument('--sample_interval', type=int, default=5000, help='interval betwen image samples')
 args = parser.parse_args()
 print(args)
-
-to_inverse = 'mixed'
-
 
 img_shape = (args.channels, args.img_size, args.img_size)
 
@@ -129,9 +130,12 @@ for epoch in range(args.n_epochs):
     for i, (imgs, _) in enumerate(dataloader):
         # print('img max: ', np.max(imgs.data.numpy()), '; img min: ', np.min(imgs.data.numpy()))
         if to_inverse == 'mixed':
-            imgs = torch.cat((imgs, 1-imgs), 0)
+            # imgs = torch.cat((imgs, 1-imgs), 0)
+            imgs = torch.cat((1 - imgs, imgs), 0)
         elif to_inverse:
             imgs = 1-imgs
+
+        # np_plt.plot_a_numpy_sample(imgs[:100])
 
         # Adversarial ground truths
         valid = Variable(Tensor(imgs.size(0), 1).fill_(1.0), requires_grad=False)
@@ -177,4 +181,4 @@ for epoch in range(args.n_epochs):
 
         batches_done = epoch * len(dataloader) + i
         if batches_done % args.sample_interval == 0:
-            save_image(gen_imgs.data[:25], img_save_path + '%d.png' % batches_done, nrow=5, normalize=True)
+            save_image(gen_imgs.data[:200], img_save_path + '%d.png' % batches_done, nrow=5, normalize=True)

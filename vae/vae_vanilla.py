@@ -42,7 +42,7 @@ device = torch.device("cuda" if args.cuda else "cpu")
 print('device: ', device)
 
 to_inverse = 'mixed'
-model_type = 'vanilla'
+model_type = 'conv'
 if to_inverse == 'mixed':
     save_prefix = 'results/' + model_type + '/mixed/'
 else:

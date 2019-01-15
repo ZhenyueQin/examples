@@ -21,4 +21,4 @@ module load pytorch/0.4.1-py36-cuda90
 module load torchvision/0.2.1-py36
 
 #module load opencv/2.4.13.2
-python3 vae_vanilla.py
+python3 gan_vanilla.py
