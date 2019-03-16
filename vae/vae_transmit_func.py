@@ -42,8 +42,8 @@ torch.manual_seed(args.seed)
 device = torch.device("cuda" if args.cuda else "cpu")
 print('device: ', device)
 
-to_inverse = 'mixed'
-model_type = 'conv'
+to_inverse = False
+model_type = 'vanilla'
 if to_inverse == 'mixed':
     save_prefix = 'results/' + model_type + '/mixed/'
 else:
@@ -97,8 +97,9 @@ def loss_function(recon_x, x, mu, logvar, z=None):
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    # KLD = divergences.gau_kl(mu, logvar.exp(), 0, 1)
+    KLD = torch.sum(torch.from_numpy(divergences.gau_kl(mu.data.numpy(), logvar.exp().data.numpy(), np.zeros(mu.shape), np.ones(mu.shape)).astype(np.float32)))
+
+    print('KLD: ', KLD)
 
     # if z is not None:
     #     z_loss =
